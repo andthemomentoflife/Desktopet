@@ -65,6 +65,7 @@ python launcher.py
 ```
 
 > 💡 **팁**: 애니메이션 소프트웨어(Aseprite, Piskel 등)를 사용해 만드는 것을 추천합니다!
+> sample_images 폴더에 예시 이미지가 있습니다. 자유롭게 참고하세요!
 
 ## 🔨 자체 빌드하기 (Executable 만들기)
 

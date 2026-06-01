@@ -2,7 +2,7 @@
 """
 Desktop Pet for Mac — PyObjC 버전
 frame1.png, frame2.png 를 같은 폴더에 두고 실행하세요
-종료: Ctrl+C
+종료: 메뉴바 🐹 → 종료
 """
 
 import random
@@ -31,14 +31,18 @@ from AppKit import (
 )
 from Foundation import NSObject, NSTimer
 
-# ── 기타 설정값 ───────────────────────────────────────────────
+# ── 전역 설정 (run_pet()에서 덮어씀) ─────────────────────────
+FRAMES = []
+FOLLOW_MOUSE = True
 PET_SCALE = 0.08
 MOVE_SPEED = 4
-MOVE_INTERVAL = 0.05
+FOLLOW_SPEED = 3
 ANIM_INTERVAL = 0.3
+
+# ── 고정 상수 ─────────────────────────────────────────────────
+MOVE_INTERVAL = 0.05
 IDLE_CHANCE = 0.003
 IDLE_DURATION = 2.0
-FOLLOW_SPEED = 3
 FOLLOW_THRESHOLD = 30
 # ─────────────────────────────────────────────────────────────
 
@@ -67,6 +71,7 @@ def pil_to_nsimage(pil_img):
 
 def load_frames():
     frames, frames_flipped = [], []
+    w = h = 0
     for path in FRAMES:
         if not os.path.exists(path):
             print(f"[오류] '{path}' 파일이 없어요.")
@@ -84,18 +89,12 @@ def load_frames():
 class QuitHandler(NSObject):
     def quit_(self, sender):
         global APP_TIMER
-
         print("[종료]")
-
         if APP_TIMER:
             APP_TIMER.invalidate()
-
         from AppKit import NSApp
 
         NSApp.terminate_(None)
-
-        import os
-
         os._exit(0)
 
 
@@ -107,8 +106,8 @@ class DesktopPet:
         self.facing_right = True
         self.idle = False
         self.idle_timer = 0.0
-        self.anim_accum = 0.0  # 애니메이션 전용 누적 시간
-        self.move_accum = 0.0  # 이동 전용 누적 시간
+        self.anim_accum = 0.0
+        self.move_accum = 0.0
 
         screen = NSScreen.mainScreen().frame()
         self.sw = int(screen.size.width)
@@ -145,26 +144,19 @@ class DesktopPet:
         self.window.makeKeyAndOrderFront_(None)
         self._update_frame()
         self._create_menu_bar()
-        print("[창] 생성 완료 — 치이카와 등장!")
+        print("[창] 생성 완료 — 펫 등장!")
 
     def _create_menu_bar(self):
         self.status_item = NSStatusBar.systemStatusBar().statusItemWithLength_(-1)
-
-        # 메뉴바 텍스트
         self.status_item.button().setTitle_("🐹")
 
         menu = NSMenu.alloc().init()
-
         quit_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
             "종료", "quit:", ""
         )
-
         self.quit_handler = QuitHandler.alloc().init()
-
         quit_item.setTarget_(self.quit_handler)
-
         menu.addItem_(quit_item)
-
         self.status_item.setMenu_(menu)
 
     def _update_frame(self):
@@ -172,24 +164,24 @@ class DesktopPet:
         self.image_view.setImage_(frames[self.current_frame])
 
     def _get_mouse_pos(self):
-        """마우스 위치 반환 (Mac 좌표계 그대로)"""
         p = NSEvent.mouseLocation()
         return int(p.x), int(p.y)
 
     def tick(self, dt):
-        # 애니메이션: ANIM_INTERVAL마다 프레임 전환
+        # 애니메이션
         self.anim_accum += dt
         if self.anim_accum >= ANIM_INTERVAL:
             self.current_frame = (self.current_frame + 1) % self.frame_count
             self._update_frame()
             self.anim_accum = 0.0
 
-        # 이동: MOVE_INTERVAL마다 위치 업데이트
+        # 이동
         self.move_accum += dt
         if self.move_accum < MOVE_INTERVAL:
             return
         self.move_accum = 0.0
 
+        # ← bool 비교로 분기
         if FOLLOW_MOUSE:
             self._tick_follow()
         else:
@@ -198,31 +190,22 @@ class DesktopPet:
         self.window.setFrameOrigin_((self.x, self.y))
 
     def _tick_follow(self):
-        """마우스 커서를 향해 이동"""
         mx, my = self._get_mouse_pos()
-
-        # 캐릭터 중심
         cx = self.x + self.pw // 2
         cy = self.y + self.ph // 2
-
         dist_x = mx - cx
         dist_y = my - cy
         dist = (dist_x**2 + dist_y**2) ** 0.5
 
         if dist < FOLLOW_THRESHOLD:
-            # 도착 — 제자리에서 idle
             return
 
-        # 방향 결정
         self.facing_right = dist_x > 0
-
-        # 정규화 후 속도 적용
         step = min(FOLLOW_SPEED, dist)
         self.x += int(dist_x / dist * step)
         self.y += int(dist_y / dist * step)
 
     def _tick_wander(self):
-        """기존 자유 배회 모드"""
         if self.idle:
             self.idle_timer -= MOVE_INTERVAL
             if self.idle_timer <= 0:
@@ -261,18 +244,28 @@ class DesktopPet:
             self.dy = -abs(self.dy)
 
 
-def run_pet(frame1, frame2, follow_mouse=True):
-    global FRAMES
-    global FOLLOW_MOUSE
+def run_pet(frame1, frame2, config: dict):
+    """
+    config 키:
+        follow_mouse  : bool
+        pet_scale     : float  (예: 0.08)
+        move_speed    : int    (예: 4)
+        follow_speed  : int    (예: 3)
+        anim_interval : float  (예: 0.3)
+    """
+    global FRAMES, FOLLOW_MOUSE, PET_SCALE, MOVE_SPEED, FOLLOW_SPEED, ANIM_INTERVAL
 
     FRAMES = [frame1, frame2]
-    FOLLOW_MOUSE = follow_mouse
+    FOLLOW_MOUSE = bool(config.get("follow_mouse", True))  # ← 반드시 bool
+    PET_SCALE = float(config.get("pet_scale", 0.08))
+    MOVE_SPEED = int(config.get("move_speed", 4))
+    FOLLOW_SPEED = int(config.get("follow_speed", 3))
+    ANIM_INTERVAL = float(config.get("anim_interval", 0.3))
 
     app = NSApplication.sharedApplication()
     app.setActivationPolicy_(0)
 
     pet = DesktopPet()
-
     delegate = TickDelegate.alloc().initWithPet_(pet)
 
     global APP_TIMER
